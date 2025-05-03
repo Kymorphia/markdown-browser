@@ -1,0 +1,11 @@
+{
+  "name": "lib",
+  "description": "Markdown Browser giD Gtk4 widget library",
+  "copyright": "Copyright © 2025, Kymorphia, PBC",
+  "license": "MIT",
+  "authors": ["Element Green <element@kymorphia.com>"],
+  "targetType": "library",
+  "dependencies": {
+    "gid:gtk4": "==0.9.6"
+  }
+}
