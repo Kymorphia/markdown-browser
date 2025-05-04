@@ -61,7 +61,7 @@ class MarkdownBrowser : Box
   enum DefaultImagesPath = ".";
   enum DefaultHomeTopic = "README";
   enum DefaultIconSize = 24;
-  enum DefaultPanedPosition = 200;
+  enum DefaultPanedPosition = 300;
 
   static immutable DefaultBulletChars = ["●","○","■","▢"]; // Default bullet characters (repeated for additional levels)
 
@@ -72,14 +72,18 @@ class MarkdownBrowser : Box
   {
     super(Orientation.Vertical, 0);
 
-    append(createNavBar);
-
     auto paned = new Paned(Orientation.Horizontal);
+    paned.resizeStartChild = false;
+
+    auto box = new Box(Orientation.Vertical, 4);
+    box.append(createNavBar);
 
     auto scrollWin = new ScrolledWindow;
     scrollWin.setChild(createTopicList);
-    paned.resizeStartChild = false;
-    paned.setStartChild(scrollWin);
+    scrollWin.vexpand = true;
+    box.append(scrollWin);
+
+    paned.setStartChild(box);
 
     _viewScrollWin = new ScrolledWindow;
     _viewScrollWin.setChild(createTextView);
@@ -262,7 +266,6 @@ class MarkdownBrowser : Box
 
     _history.length = 0;
     _historyPos = 0;
-    _curTopicIndex = TopicNone;
   }
 
   // Create navigation bar
@@ -286,11 +289,6 @@ class MarkdownBrowser : Box
     _forwardBtn.connectClicked(() { navigate(1); }); // Navigate forward 1 topic in history
     navBar.append(_forwardBtn);
 
-    auto searchEntry = new SearchEntry;
-    searchEntry.tooltipText = "Search help topics";
-    searchEntry.hexpand = true;
-    navBar.append(searchEntry);
-
     _homeBtn = Button.newFromIconName("go-home");
     _homeBtn.tooltipText = "Go to documentation home";
     navBar.append(_homeBtn);
@@ -299,6 +297,11 @@ class MarkdownBrowser : Box
       if (_homeTopic.length > 0) // Navigate to home topic if it is set
         navigateToTopicByName(_homeTopic);
     });
+
+    auto searchEntry = new SearchEntry;
+    searchEntry.tooltipText = "Search help topics";
+    searchEntry.hexpand = true;
+    navBar.append(searchEntry);
 
     return navBar;
   }
