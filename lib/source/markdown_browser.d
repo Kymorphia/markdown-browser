@@ -7,6 +7,7 @@ import gdk.rectangle;
 import gdk.rgba;
 import gdk.texture;
 import gdk.types : CURRENT_TIME;
+import gobject.global : signalHandlerBlock, signalHandlerUnblock;
 import gobject.object;
 import gtk.box;
 import gtk.button;
@@ -80,9 +81,9 @@ class MarkdownBrowser : Box
     paned.resizeStartChild = false;
     paned.setStartChild(scrollWin);
 
-    scrollWin = new ScrolledWindow;
-    scrollWin.setChild(createTextView);
-    paned.setEndChild(scrollWin);
+    _viewScrollWin = new ScrolledWindow;
+    _viewScrollWin.setChild(createTextView);
+    paned.setEndChild(_viewScrollWin);
 
     paned.vexpand = true;
     paned.position = DefaultPanedPosition;
@@ -132,11 +133,7 @@ class MarkdownBrowser : Box
 
     if (_curTopicIndex != TopicNone) // If there is a current topic update history
     {
-      Rectangle rect;
-      auto iter = new TextIter;
-      _textView.getVisibleRect(rect);
-      _textView.getIterAtLocation(iter, 0, rect.y);
-      auto visit = Visit(_curTopicIndex, iter.getLine);
+      auto visit = Visit(_curTopicIndex, _viewScrollWin.vadjustment.value);
 
       if (_historyPos < _history.length)
       {
@@ -172,16 +169,18 @@ class MarkdownBrowser : Box
     _curTopicIndex = topicIndex;
     renderTopic(topicIndex >= 0 ? &_topics[topicIndex] : null);
 
-    if (historyOfs != 0) // Navigating history? Scroll to the line for the history visit.
-    {
-      auto iter = new TextIter;
-      _textBuffer.getIterAtLine(iter, _history[_historyPos].line);
-      auto mark = _textBuffer.createMark("scroll", iter, true);
-      _textView.scrollToMark(mark, 0.0, true, 0.5, 0.0); // mark, withinMargin, useAlign, xalign, yalign
-    }
+    if (historyOfs != 0) // Navigating history? Scroll to the page position
+      _viewScrollWin.vadjustment.setValue(_history[_historyPos].scrollValue);
 
     if (topicIndex >= 0) // If topic is valid, select it
+    {
+      _topicSelection.signalHandlerBlock(_topicSelectionChangedHandler); // Block selection changed handler so this method doesn't get recursively called
       _topicListView.getModel.selectItem(topicIndex, true); // position, unselectRest
+      _topicSelection.signalHandlerUnblock(_topicSelectionChangedHandler);
+    }
+
+    _backBtn.sensitive = _historyPos > 0;
+    _forwardBtn.sensitive = _historyPos + 1 < _history.length;
 
     return true;
   }
@@ -230,7 +229,7 @@ class MarkdownBrowser : Box
     _topics.insertInPlace(insertIndex, newTopic);
     _topicModel.splice(cast(uint)insertIndex, 0, [title]); // Insert title in topic model
 
-    if (_curTopicIndex == TopicNone && homeTopic == title)
+    if (_curTopicIndex == TopicNone && name == homeTopic)
       navigateToTopicByName(homeTopic);
   }
 
@@ -275,23 +274,25 @@ class MarkdownBrowser : Box
     navBar.marginTop = 4;
     navBar.marginBottom = 4;
 
-    auto btn = Button.newFromIconName("go-previous");
-    btn.tooltipText("Go to previous topic visited");
-    btn.connectClicked(() { navigate(-1); }); // Navigate back 1 topic in history
-    navBar.append(btn);
+    _backBtn = Button.newFromIconName("go-previous");
+    _backBtn.sensitive = false;
+    _backBtn.tooltipText("Go to previous topic visited");
+    _backBtn.connectClicked(() { navigate(-1); }); // Navigate back 1 topic in history
+    navBar.append(_backBtn);
 
-    btn = Button.newFromIconName("go-next");
-    btn.tooltipText = "Go to next topic visited";
-    btn.connectClicked(() { navigate(1); }); // Navigate forward 1 topic in history
-    navBar.append(btn);
+    _forwardBtn = Button.newFromIconName("go-next");
+    _forwardBtn.sensitive = false;
+    _forwardBtn.tooltipText = "Go to next topic visited";
+    _forwardBtn.connectClicked(() { navigate(1); }); // Navigate forward 1 topic in history
+    navBar.append(_forwardBtn);
 
     auto searchEntry = new SearchEntry;
     searchEntry.tooltipText = "Search help topics";
+    searchEntry.hexpand = true;
     navBar.append(searchEntry);
 
     _homeBtn = Button.newFromIconName("go-home");
     _homeBtn.tooltipText = "Go to documentation home";
-    _homeBtn.visible = false; // Set to true when homeTopic is assigned
     navBar.append(_homeBtn);
 
     _homeBtn.connectClicked(() {
@@ -312,10 +313,10 @@ class MarkdownBrowser : Box
     scrollWin.marginBottom = 4;
 
     _topicModel = new StringList;
-    auto selection = new SingleSelection(_topicModel);
+    _topicSelection = new SingleSelection(_topicModel);
 
-    selection.connectSelectionChanged(() {
-      auto position = selection.getSelected;
+    _topicSelectionChangedHandler = _topicSelection.connectSelectionChanged(() {
+      auto position = _topicSelection.getSelected;
 
       if (position != INVALID_LIST_POSITION)
         navigate(0, position);
@@ -335,7 +336,7 @@ class MarkdownBrowser : Box
       label.setText(item.getString);
     });
 
-    _topicListView = new ListView(selection, factory);
+    _topicListView = new ListView(_topicSelection, factory);
     scrollWin.setChild(_topicListView);
 
     return scrollWin;
@@ -752,7 +753,7 @@ class MarkdownBrowser : Box
   struct Visit
   {
     int topic; /// The topic visited
-    int line; /// The line position of the visit
+    double scrollValue = 0.0; /// Last scroll Adjustment.value position of the page
   }
 
   enum TopicNone = -1; /// Used to indicate no topic
@@ -760,10 +761,15 @@ class MarkdownBrowser : Box
 private:
   ListView _topicListView; // Topic list view widget
   StringList _topicModel; // Topic list model
+  SingleSelection _topicSelection; // Topic selection object
+  ulong _topicSelectionChangedHandler; // Topic list selection changed signal handler ID
+  ScrolledWindow _viewScrollWin; // Text view scrolled window
   TextView _textView; // Text view widget
   TextBuffer _textBuffer; // Text buffer displayed in the text view
   TextMark _appendMark; // Mark used for tagging appended text (left gravity)
   TextTag[] _tags; // Text format tags
+  Button _backBtn; // Back navigation button
+  Button _forwardBtn; // Forward navigation button
   Button _homeBtn; // Home button (hidden if there is no home topic)
   Topic[] _topics; // Topics (pages)
   Visit[] _history; // Visit history
