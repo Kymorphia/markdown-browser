@@ -9,6 +9,8 @@ import gobject.object;
 import gtk.event_controller_motion;
 import gtk.gesture_click;
 import gtk.icon_theme;
+import gtk.image;
+import gtk.picture;
 import gtk.text_buffer;
 import gtk.text_iter;
 import gtk.text_mark;
@@ -16,12 +18,15 @@ import gtk.text_tag;
 import gtk.text_tag_table;
 import gtk.text_view;
 import gtk.tooltip;
-import gtk.types : EventSequenceState, IconLookupFlags, PropagationPhase, TextDirection, TextWindowType, WrapMode;
+import gtk.types : Align, ContentFit, EventSequenceState, IconLookupFlags, PropagationPhase, TextDirection,
+  TextWindowType, WrapMode;
+import gtk.widget;
 import pango.types : Weight, Style, Underline;
 
 import std.algorithm;
 import std.array;
 import std.conv;
+import std.exception;
 import std.path;
 import std.range;
 import std.regex;
@@ -96,6 +101,16 @@ class MarkdownView : TextView
     gestureClick.propagationPhase = PropagationPhase.Capture; // Run callback in capture phase to be able to stop event propagation for link clicks
     gestureClick.connectPressed(&onButtonPressed);
     addController(gestureClick);
+
+    connectRealize(() {
+      hadjustment.connectNotify("page-size", () { // Resize images when TextView size changes
+        auto newWidth = getAllocatedWidth - leftMargin - 1; // Subtract left margin and 1 additional pixel (just because?)
+        if (newWidth < 0) newWidth = 0;
+
+        foreach (gInfo; _graphicInfo)
+          updateGraphicSize(newWidth, gInfo);
+      });
+    });
   }
 
   // Create buffer tags table
@@ -193,6 +208,19 @@ class MarkdownView : TextView
     }
   }
 
+  // Resize a graphic to a new width, retaining the aspect ratio
+  private void updateGraphicSize(int newWidth, GraphicInfo gInfo)
+  {
+    auto width = min(gInfo.width, newWidth);
+
+    if (width != gInfo.curWidth)
+    {
+      gInfo.curWidth = width;
+      gInfo.graphic.widthRequest = width;
+      gInfo.graphic.heightRequest = cast(int)(width / gInfo.aspectRatio + 0.5);
+    }
+  }
+
   /**
    * Render markdown content. Converts the markdown string content to TextBuffer content with formatting tags.
    * Params:
@@ -205,6 +233,7 @@ class MarkdownView : TextView
     _textBuffer.getBounds(startIter, endIter);
     _textBuffer.delete_(startIter, endIter);
     _altLinkMap.clear; // Clear alt/link text associated with pictures/link marks
+    _graphicInfo.length = 0;
 
     if (content.empty) return;
 
@@ -323,45 +352,80 @@ class MarkdownView : TextView
           else
             bufferAppend((++numListCounts[listLevel - 1]).to!string ~ ". ");
           break;
-        case Image:
-          string imageName = match[2];
-          Paintable paintable;
+        case Graphic:
+          auto fields = match[2].split(":");
+          auto imageName = fields[$ - 1];
+          fields.length--; // Remove image name from fields (always last field)
 
-          if (imageName.startsWith("icon:"))
+          GraphicInfo gInfo;
+
+          foreach (f; fields) // Loop over colon seperated fields
           {
-            auto parts = imageName["icon:".length .. $].split(":");
-            int size = DefaultIconSize;
-
-            if (parts.length > 1) // Was a size specified?
+            if (f[0] == 'w' || f[0] == 'W') // Width specified?
+              gInfo.width = f[1 .. $].to!int.ifThrown(0);
+            else if (f[0] == 'h' || f[0] == 'H') // Height specified?
+              gInfo.height = f[1 .. $].to!int.ifThrown(0);
+            else // Attempt to parse value as a width & height integer value (for icons or square pictures)
             {
-              try
-                size = parts[0].to!int;
-              catch (ConvException e)
-                {}
+              gInfo.width = f.to!int.ifThrown(0);
+              gInfo.height = gInfo.width;
+            }
+          }
+
+          if (fields.canFind!(x => x.toLower == "icon")) // Was "icon" specified in the fields?
+          {
+            gInfo.width = gInfo.width != 0 ? gInfo.width : DefaultIconSize;
+            auto image = Image.newFromIconName(imageName); // Use Image for icons
+            image.pixelSize = gInfo.width;
+            gInfo.graphic = image;
+          }
+          else // Picture link
+          {
+            auto picture = Picture.newForFilename(buildPath(_imagesPath, baseName(imageName)));
+            picture.contentFit = ContentFit.Fill;
+            auto paintable = picture.paintable;
+
+            gInfo.aspectRatio = (gInfo.width != 0 && gInfo.height != 0) // If width and height are specified, use them to calculation the aspect ratio
+              ? (cast(double)gInfo.width / gInfo.height) : paintable.getIntrinsicAspectRatio; // Otherwise use the paintable aspect ratio
+
+            if (gInfo.width == 0) // If width not specified, calculate it based on aspect ratio if height specified, otherwise use the native width
+              gInfo.width = gInfo.height != 0 ? cast(int)(gInfo.height * paintable.getIntrinsicAspectRatio + 0.5)
+                : paintable.getIntrinsicWidth;
+
+            if (gInfo.height == 0) // If height not specified, calculate it based on aspect ratio if width specified, otherwise use the native height
+              gInfo.height = gInfo.width != 0 ? cast(int)(gInfo.width / paintable.getIntrinsicAspectRatio + 0.5)
+                : paintable.getIntrinsicHeight;
+
+            auto allocWidth = getAllocatedWidth - leftMargin - 1; // Subtract left margin and 1 additional pixel (just because?)
+            if (allocWidth < 0) allocWidth = 0;
+
+            picture.widthRequest = gInfo.width;
+            picture.heightRequest = gInfo.height;
+
+            if (getRealized && gInfo.width > allocWidth)
+            {
+              gInfo.curWidth = allocWidth;
+              picture.widthRequest = allocWidth;
+              picture.heightRequest = cast(int)(allocWidth / gInfo.aspectRatio + 0.5);
             }
 
-            auto iconTheme = IconTheme.getForDisplay(Display.getDefault);
-            paintable = iconTheme.lookupIcon(parts[$ - 1], null, size, 96, TextDirection.None, // FIXME - Not sure what to use for scale (96 dpi?)
-              IconLookupFlags.ForceSymbolic);
+            gInfo.graphic = picture;
+            _graphicInfo ~= gInfo;
           }
-          else
-            paintable = Texture.newFromFilename(buildPath(_imagesPath, baseName(imageName)));
 
-          if (paintable)
-          {
-            string alt = match[1];
+          _textBuffer.getEndIter(endIter);
+          auto anchor = _textBuffer.createChildAnchor(endIter);
+          addChildAtAnchor(gInfo.graphic, anchor);
 
-            if (alt.length)
-              _altLinkMap[cast(ObjectWrap)paintable] = alt;
+          string alt = match[1];
+          if (alt.length)
+            _altLinkMap[gInfo.graphic] = alt;
 
-            _textBuffer.getEndIter(endIter);
-            _textBuffer.insertPaintable(endIter, paintable);
-          }
           break;
         case Link:
           _textBuffer.getEndIter(endIter);
           auto mark = _textBuffer.createMark(null, endIter, true);
-          string linkUrl = match[2];
+          auto linkUrl = match[2];
           _altLinkMap[mark] = linkUrl;
           link = true;
           bufferAppend(match[1]);
@@ -417,7 +481,7 @@ class MarkdownView : TextView
     HeaderStart, /// Regex to match a header
     BulletItemStart, /// Regex to match a bullet list item
     NumericItemStart, /// Regex to match a numeric list item
-    Image, /// An image link
+    Graphic, /// A graphic link (icon or picture)
     Link, /// A regular link
     EmphasisEnd, /// Regex to match the end of an emphasis range
     HeaderOrListItemEnd, /// Regex to match the end of a header or list item
@@ -431,11 +495,21 @@ class MarkdownView : TextView
     ctRegex!(r"^ {0,3}(#{1,6}) ", "m"), // HeaderStart: Match 0 to 3 spaces followed by 1 to 6 # characters, followed by a space
     ctRegex!(r"^( *)\* ", "m"), // BulletItemStart: Match 0 or more spaces followed by an asterisk and a space
     ctRegex!(r"^( *)\d+\. ", "m"), // NumericItemStart: Match 0 or more spaces, 1 or more decimal digits, a period and a space
-    ctRegex!(r"(?<!\\)!\[([^\]]+)\]\(([^)]+)\)"), // Image: Matches markdown links of the form "![alt text](url)", not preceded by a backslash, and alt text and url do not contain invalid chars
+    ctRegex!(r"(?<!\\)!\[([^\]]+)\]\(([^)]+)\)"), // Graphic: Matches markdown links of the form "![alt text](url)", not preceded by a backslash, and alt text and url do not contain invalid chars
     ctRegex!(r"(?<![!\\])\[([^\]]+)\]\(([^)]+)\)"), // Link: Matches regular markdown links of the form "[text](url)"
     ctRegex!(r"(?<![\\ ])(\*{1,3})"), // EmphasisEnd: Matches 1 to 3 asterisks not preceded by a backslash or a space
     ctRegex!(r"(?=\r\n|[\r\n])"), // HeaderOrListItemEnd: Finds a line break (end of header or list item)
   ];
+
+  /// Information for a graphic (icon or picture)
+  private struct GraphicInfo
+  {
+    Widget graphic; /// The graphic widget (Picture or Image)
+    double aspectRatio; /// Aspect ratio of the graphic (width / height)
+    int width; /// Native width of the graphic (or override value)
+    int height; /// Native height of the graphic
+    int curWidth; /// Last view width
+  }
 
   mixin Signal!(string) linkClicked; /// Signal for when a link is clicked
 
@@ -443,6 +517,7 @@ private:
   TextBuffer _textBuffer; // Text buffer displayed in the text view
   TextMark _appendMark; // Mark used for tagging appended text (left gravity)
   TextTag[] _tags; // Text format tags
+  GraphicInfo[] _graphicInfo; // Array of graphic information for resizing icons/pictures when view size is changed
   string _imagesPath = DefaultImagesPath; // Path to images
   string[] _bulletChars = DefaultBulletChars; // Bullet characters for each list level (repeated)
   string[ObjectWrap] _altLinkMap; // Maps image and mark objects to strings which store "alt" tags or link URLs respectively
