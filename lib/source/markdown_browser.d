@@ -258,7 +258,8 @@ class MarkdownBrowser : Box
   }
 
   /**
-   * Filter topics by search text.
+   * Filter topics by searching for text within markdown content.
+   * Searches through topic titles, names, and full markdown content.
    * Params:
    *   searchText = The search text to filter by (empty string shows all)
    */
@@ -274,7 +275,7 @@ class MarkdownBrowser : Box
 
     _filteredIndices.length = 0;
 
-    // Add matching topics
+    // Add topics containing the search string in title, name, or content
     searchText = searchText.toLower.strip;
     foreach (i, topic; _topics)
     {
@@ -319,9 +320,9 @@ class MarkdownBrowser : Box
     });
 
     _searchEntry = new SearchEntry;
-    _searchEntry.tooltipText = "Search help topics";
+    _searchEntry.tooltipText = "Search within markdown documents";
     _searchEntry.hexpand = true;
-    _searchEntry.placeholderText = "Search topics...";
+    _searchEntry.placeholderText = "Search in documents...";
     _searchEntry.visible = true;
     _searchEntry.connectSearchChanged(() {
       filterTopics(_searchEntry.text);
