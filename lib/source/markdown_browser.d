@@ -24,6 +24,7 @@ import std.file;
 import std.path;
 import std.range;
 import std.regex;
+import std.string;
 
 import markdown_view;
 
@@ -249,6 +250,43 @@ class MarkdownBrowser : Box
 
     _history.length = 0;
     _historyPos = 0;
+
+    // Initialize filtered indices to show all topics
+    _filteredIndices.length = _topics.length;
+    foreach (i, ref idx; _filteredIndices)
+      idx = cast(int)i;
+  }
+
+  /**
+   * Filter topics by searching for text within markdown content.
+   * Searches through topic titles, names, and full markdown content.
+   * Params:
+   *   searchText = The search text to filter by (empty string shows all)
+   */
+  private void filterTopics(string searchText)
+  {
+    // Block selection changed handler while updating model
+    _topicSelection.signalHandlerBlock(_topicSelectionChangedHandler);
+
+    // Clear current model
+    auto count = _topicModel.getNItems;
+    if (count > 0)
+      _topicModel.splice(0, count, []);
+
+    _filteredIndices.length = 0;
+
+    // Add topics containing the search string in title, name, or content
+    searchText = searchText.toLower.strip;
+    foreach (i, topic; _topics)
+    {
+      if (searchText.empty || topic.title.toLower.canFind(searchText) || topic.name.toLower.canFind(searchText) || topic.content.toLower.canFind(searchText))
+      {
+        _topicModel.append(topic.title);
+        _filteredIndices ~= cast(int)i;
+      }
+    }
+
+    _topicSelection.signalHandlerUnblock(_topicSelectionChangedHandler);
   }
 
   // Create navigation bar
@@ -281,10 +319,15 @@ class MarkdownBrowser : Box
         navigateToTopicByName(_homeTopic);
     });
 
-    auto searchEntry = new SearchEntry;
-    searchEntry.tooltipText = "Search help topics";
-    searchEntry.hexpand = true;
-    navBar.append(searchEntry);
+    _searchEntry = new SearchEntry;
+    _searchEntry.tooltipText = "Search within markdown documents";
+    _searchEntry.hexpand = true;
+    _searchEntry.placeholderText = "Search in documents...";
+    _searchEntry.visible = true;
+    _searchEntry.connectSearchChanged(() {
+      filterTopics(_searchEntry.text);
+    });
+    navBar.append(_searchEntry);
 
     return navBar;
   }
@@ -305,7 +348,12 @@ class MarkdownBrowser : Box
       auto position = _topicSelection.getSelected;
 
       if (position != INVALID_LIST_POSITION)
-        navigate(0, position);
+      {
+        // Use filtered index to get the real topic index
+        int topicIndex = (position < _filteredIndices.length) ? _filteredIndices[position] : -1;
+        if (topicIndex >= 0)
+          navigate(0, topicIndex);
+      }
     });
 
     auto factory = new SignalListItemFactory;
@@ -350,6 +398,8 @@ private:
   StringList _topicModel; // Topic list model
   SingleSelection _topicSelection; // Topic selection object
   ulong _topicSelectionChangedHandler; // Topic list selection changed signal handler ID
+  SearchEntry _searchEntry; // Search entry widget
+  int[] _filteredIndices; // Maps filtered list positions to original topic indices
   ScrolledWindow _viewScrollWin; // Text view scrolled window
   MarkdownView _markdownView; // The markdown view widget
   Button _backBtn; // Back navigation button

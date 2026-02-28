@@ -45,6 +45,10 @@ class MarkdownView : TextView
   enum DefaultHomeTopic = "README";
   enum DefaultIconSize = 24;
 
+  // Tag array indices (for _tags array access, matching creation order in createTagTable)
+  enum TagIndexListStart = 3;                              // List tags: L1, L2, ... L10
+  enum TagIndexHeaderStart = TagIndexListStart + ListLevelCount; // Header tags: H1, H2, ... H6
+
   static immutable DefaultBulletChars = ["●","○","■","▢"]; // Default bullet characters (repeated for additional levels)
 
   // Update this if HeadersCount is changed
@@ -233,6 +237,14 @@ class MarkdownView : TextView
     _textBuffer.getBounds(startIter, endIter);
     _textBuffer.delete_(startIter, endIter);
     _altLinkMap.clear; // Clear alt/link text associated with pictures/link marks
+
+    // Properly unparent old graphic widgets before clearing to prevent memory leak
+    foreach (ref gInfo; _graphicInfo)
+    {
+      if (gInfo.graphic)
+        gInfo.graphic.unparent();
+    }
+
     _graphicInfo.length = 0;
 
     if (content.empty) return;
@@ -267,10 +279,10 @@ class MarkdownView : TextView
         _textBuffer.applyTag(_tags[TagEnum.Link], startIter, endIter);
 
       if (listItem)
-        _textBuffer.applyTag(_tags[TagEnum.List + listLevel - 1], startIter, endIter);
+        _textBuffer.applyTag(_tags[TagIndexListStart + listLevel - 1], startIter, endIter);
 
       if (headerSize > 0)
-        _textBuffer.applyTag(_tags[TagEnum.List + ListLevelCount + headerSize - 1], startIter, endIter);
+        _textBuffer.applyTag(_tags[TagIndexHeaderStart + headerSize - 1], startIter, endIter);
     }
 
     uint[RegexEnum.max + 1] matchOffsets; // Content offsets from where each regex was performed
