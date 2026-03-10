@@ -1,9 +1,17 @@
 {
 	"name": "markdown-browser",
-	"description": "Markdown Browser application and giD Gtk4 widget library",
-	"copyright": "Copyright © 2025, Kymorphia PBC",
+	"description": "Markdown Browser giD Gtk4 widget",
+	"copyright": "Copyright © 2025-2026, Kymorphia PBC",
 	"license": "MIT",
 	"authors": ["Element Green <element@kymorphia.com>"],
-	"dependencies": {":lib": "*"},
-  "subPackages": ["lib/"]
+	"targetType": "library",
+	"dependencies": {"gid:gtk4": "==0.9.9"},
+	"configurations" : [
+		{
+			"name": "demo",
+			"targetType": "executable",
+			"sourcePaths": ["demo", "source"],
+			"mainSourceFile": "demo/app.d"
+		}
+	]
 }

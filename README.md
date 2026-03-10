@@ -10,6 +10,8 @@ The original intent of this widget was to create a light weight help system base
 * Images with alt text tooltips
 * Escape Markdown special characters with backslash
 
+![giD is awesome!](w200:gid-logo.svg)
+
 **Extras**
 * GTK icons can be specified as image urls with a "icon:" prefix, such as \[Alt icon text](icon:gtk-home), can also have a size field like \[Large icon](icon:48:gtk-home).
 
@@ -17,40 +19,39 @@ Please see the [Test](test) topic for examples of all currently supported Markdo
 
 We welcome pull requests for improvements and bug fixes.
 
-Currently there are two GtkWidget derived object types: **MarkdownBrowser**, the main browser widget, and **MarkdownBrowserDialog**, a simple dialog containing a MarkdownBrowser widget.
-
-## MarkdownBrowserDialog
-A GtkDialog with a MarkdownBrowser widget in it's content area.
-
-### functions
-* **markdown_browser_dialog_new()** - Create new browser dialog widget.
-* **markdown_browser_dialog_get_browser()** - Get the MarkdownBrowser widget contained in the dialog.
-
+Currently there are two Widget derived object types: **MarkdownBrowser**, the main browser widget, and **MarkdownView**, a TextView derived widget used by MarkdownBrowser.
 
 ## MarkdownBrowser
-This widget is derived from GtkBox and is separate from MarkdownBrowserDialog to make it easily embeddable in other GTK containers.
+This widget is derived from GtkBox and is intended to embed in a GTK Window or Dialog.
 
-A directory of Markdown topics can be added alphabetically with **markdown_browser_add_files()**. By default topics are contained in a single Markdown file, with the file name without the .md or .markdown extension used as the topic name ID, and the first Heading1 being used for the title. However topics can also be added with **markdown_browser_add_topic()** to define the name, title, and content or to define custom topic sort order.
+A directory of Markdown topics can be added alphabetically with the `addFiles()` method. By default topics are contained in a single Markdown file, with the file name without the .md or .markdown extension used as the topic name ID, and the first Heading1 being used for the title. However topics can also be added with `addTopic()` to define the name, title, and content or to define custom topic sort order.
 
 ### Properties
-* **ui-file** - External UI interface file to use, default is to use compiled-in interface data from MarkdownBrowser.ui.
-* **images-path** - Path to base directory for images referenced by markdown content.
-* **topic-index** - Current topic index or -1 if no topic selected.
-* **history-position** - Current topic history position to store next visit to (can be 1 index after the current history array)
-* **history-size** - Current history array size
-* **history-max** - Maximum history size (older entries are removed)
-* **bullet-chars** - Bullet characters, one for each nested list level, last character is used for remaining levels (default is "●○■")
-* **home-topic** - Home topic name (default is "README")
 
-### functions
-Please consult the MarkdownBrowser.h header file for full details.
+**FIXME:* Many of these aren't currently implemented
 
-* **markdown_browser_new()** - Create a new MarkdownBrowser widget
-* **markdown_browser_navigate()** - Navigate to a new topic or position in topic visit history.
-* **markdown_browser_navigate_to_topic_by_name()** - Navigate to a topic by name.
-* **markdown_browser_get_topic_by_name()** - Get topic index by name.
-* **markdown_browser_get_topics()** - Get array of browser topic information.
-* **markdown_browser_get_history()** - Get array of browser visit history information.
-* **markdown_browser_add_topic()** - Add a single Markdown topic to a browser widget.
-* **markdown_browser_add_files()** - Add Markdown files from a directory path.
+* **imagesPath** - Path to base directory for images referenced by markdown content.
+* **topicIndex** - Current topic index or -1 if no topic selected.
+* **historyPosition** - Current topic history position to store next visit to (can be 1 index after the current history array)
+* **historySize** - Current history array size
+* **historyMax** - Maximum history size (older entries are removed)
+* **bulletChars** - Bullet characters, one for each nested list level, last character is used for remaining levels (default is "●○■")
+* **homeTopic** - Home topic name (default is "README")
 
+### Methods
+Please consult the MarkdownBrowser.d source for full details.
+
+* `navigate()` - Navigate to a new topic or position in topic visit history.
+* `navigateByTopicName()` - Navigate to a topic by name.
+* `getTopicByName()` - Get topic index by name.
+* `topics` - Get array of browser topic information.
+* `history` - Get array of browser visit history information.
+* `homeTopic` - Getter and setter for home topic name
+* `addTopic()` - Add a single Markdown topic to a browser widget.
+* `addFiles()` - Add Markdown files from a directory path.
+
+## MarkdownView
+
+This widget is derived from TextView and provides the basic markdown rendering backend.  It isn't normally used standalone, but is provided if someone wants to create their own browser interface or minimalistic markdown viewer.
+
+It provides one method of interest `render()` for rendering markdown content.  It also has a `Signal!(string) linkClicked` std.signal which can be used for adding a callback which is called when a link is clicked in order to handle the link action.
