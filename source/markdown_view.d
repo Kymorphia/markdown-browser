@@ -123,7 +123,7 @@ class MarkdownView : TextView
     _tags[$ - 1].style = Style.Italic;
 
     _tags ~= new TextTag("A");
-    _tags[$ - 1].foregroundRgba = new RGBA(0.45, 0.62, 0.81, 1.0);
+    _tags[$ - 1].foregroundRgba = RGBA(0.45, 0.62, 0.81, 1.0);
     _tags[$ - 1].underline = Underline.Single;
 
     foreach (i; 0 .. ListLevelCount)

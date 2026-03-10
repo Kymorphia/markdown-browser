@@ -75,7 +75,7 @@ class MarkdownBrowser : Box
         navigate(0, topic);
     }
     else // Internet link or email address
-      showUri(cast(Window)getAncestor(Window.getType), link, CURRENT_TIME);
+      showUri(cast(Window)getAncestor(Window._getGType), link, CURRENT_TIME);
   }
 
   /// Get topics
