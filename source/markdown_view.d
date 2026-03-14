@@ -293,7 +293,13 @@ class MarkdownView : TextView
 
       // Append content before the next regex match position (if any)
       if (contentPos < nextMatchPos)
-        bufferAppend(content[contentPos .. nextMatchPos]);
+      {
+        auto s = content[contentPos .. nextMatchPos];
+        s = s.replaceAll(SingleNewlineRegex, " "); // Replace single newlines with spaces
+        s = s.replaceAll(MultiNewlineRegex, "\n\n"); // Replace multiple newlines with double newlines
+        s = s.replaceAll(MultiSpaceRegex, " "); // Replace multiple spaces with a single space
+        bufferAppend(s);
+      }
 
       if (nextMatchPos == content.length) // No more content to process?
         break;
@@ -347,10 +353,12 @@ class MarkdownView : TextView
             listLevel++;
           }
 
+          string newline = (newLevel && listLevel == 1) ? "" : "\n";
+
           if (nextRegexEnum == RegexEnum.BulletItemStart)
-            bufferAppend(_bulletChars[(listLevel - 1) % _bulletChars.length] ~ " ");
+            bufferAppend(newline ~ _bulletChars[(listLevel - 1) % _bulletChars.length] ~ " ");
           else
-            bufferAppend((++numListCounts[listLevel - 1]).to!string ~ ". ");
+            bufferAppend(newline ~ (++numListCounts[listLevel - 1]).to!string ~ ". ");
           break;
         case Graphic:
           auto fields = match[2].split(":");
@@ -488,6 +496,9 @@ class MarkdownView : TextView
   }
 
   enum UnescapeRegex = ctRegex!(r"\\([\[\]\\`*_{}<>()#+-.!|])", "g"); // Regex to unescape markdown escape sequences
+  enum SingleNewlineRegex = ctRegex!(r"(?<!\n)\n(?!\n)", "g"); // For converting single newlines to spaces
+  enum MultiNewlineRegex = ctRegex!(r"\n{2,}", "g"); // For converting multiple newlines to a single one
+  enum MultiSpaceRegex = ctRegex!(r" {2,}", "g"); // For matching multiple spaces to replace with a single space
 
   /// Markdown parser regular expressions
   immutable auto RegexArray = [

@@ -1,9 +1,13 @@
 module markdown_browser;
 
+import gio.list_store;
 import gobject.global : signalHandlerBlock, signalHandlerUnblock;
+import gobject.object;
+import gobject.types : GTypeEnum;
 import gdk.types : CURRENT_TIME;
 import gtk.box;
 import gtk.button;
+import gtk.custom_sorter;
 import gtk.global : showUri;
 import gtk.label;
 import gtk.list_item;
@@ -13,9 +17,9 @@ import gtk.scrolled_window;
 import gtk.search_entry;
 import gtk.signal_list_item_factory;
 import gtk.single_selection;
+import gtk.sort_list_model;
 import gtk.string_list;
-import gtk.string_object;
-import gtk.types : INVALID_LIST_POSITION, Orientation;
+import gtk.types : INVALID_LIST_POSITION, Orientation, SorterChange;
 import gtk.widget;
 import gtk.window;
 
@@ -24,6 +28,7 @@ import std.file;
 import std.path;
 import std.range;
 import std.regex;
+import std.typecons;
 
 import markdown_view;
 
@@ -79,13 +84,13 @@ class MarkdownBrowser : Box
   }
 
   /// Get topics
-  Topic[] topics()
+  @property Topic*[] topics()
   {
     return _topics;
   }
 
   /// Get navigation history
-  Visit[] history()
+  @property Visit*[] history()
   {
     return _history;
   }
@@ -101,6 +106,20 @@ class MarkdownBrowser : Box
   @property string homeTopic()
   {
     return _homeTopic;
+  }
+
+  /// Topic sort order (remaining topics are sorted by title)
+  @property string[] topicSortOrder()
+  {
+    return _topicSortOrder;
+  }
+
+  /// Topic sort order
+  @property void topicSortOrder(inout string[] sortOrder)
+  {
+    _topicSortOrder = sortOrder.dup;
+    _topicSortOrderMap = _topicSortOrder.enumerate.map!(t => tuple(t[1], cast(int)t[0])).assocArray;
+    _topicCustomSorter.changed(SorterChange.Different);
   }
 
   /**
@@ -120,7 +139,7 @@ class MarkdownBrowser : Box
 
     if (_curTopicIndex != TopicNone) // If there is a current topic update history
     {
-      auto visit = Visit(_curTopicIndex, _viewScrollWin.vadjustment.value);
+      auto visit = new Visit(_curTopicIndex, _viewScrollWin.vadjustment.value);
 
       if (_historyPos < _history.length)
       {
@@ -154,7 +173,7 @@ class MarkdownBrowser : Box
       _historyPos = cast(int)_history.length;
 
     _curTopicIndex = topicIndex;
-    _markdownView.render(topicIndex >= 0 ? _topics[topicIndex].content : null);
+    _markdownView.render(topicIndex >= 0 ? _sortListModel.getItem!TopicItem(cast(uint)topicIndex).topic.content : null);
 
     if (historyOfs != 0) // Navigating history? Scroll to the page position
       _viewScrollWin.vadjustment.setValue(_history[_historyPos].scrollValue);
@@ -197,8 +216,12 @@ class MarkdownBrowser : Box
    */
   int getTopicByName(string name)
   {
-    assert(TopicNone == -1); // countUntil happens to return -1 if not found, which should be TopicNone enum value
-    return cast(int)_topics.countUntil!(x => x.name == name);
+    foreach (i; 0 .. _sortListModel.getNItems)
+      if (auto item = _sortListModel.getItem!TopicItem(i))
+        if (item.topic.name == name)
+          return i;
+
+    return TopicNone;
   }
 
   /**
@@ -209,12 +232,9 @@ class MarkdownBrowser : Box
    *   content = The content
    */
   void addTopic(string name, string title, string content)
-  { // Insert topic sorted by title
-    auto sortedTopics = SortedRange!(Topic[], "a.title < b.title", SortedRangeOptions.assumeSorted)(_topics);
-    auto newTopic = Topic(name, title, content);
-    auto insertIndex = sortedTopics.lowerBound(newTopic).length;
-    _topics.insertInPlace(insertIndex, newTopic);
-    _topicModel.splice(cast(uint)insertIndex, 0, [title]); // Insert title in topic model
+  {
+    _topics ~= new Topic(name, title, content);
+    _topicModel.append(new TopicItem(_topics[$ - 1]));
 
     if (_curTopicIndex == TopicNone && name == homeTopic)
       navigateToTopicByName(homeTopic);
@@ -298,8 +318,19 @@ class MarkdownBrowser : Box
     scrollWin.marginTop = 4;
     scrollWin.marginBottom = 4;
 
-    _topicModel = new StringList;
-    _topicSelection = new SingleSelection(_topicModel);
+    _topicModel = new ListStore(GTypeEnum.Object);
+
+    _topicCustomSorter = new CustomSorter((ObjectWrap a, ObjectWrap b) {
+      auto aName = (cast(TopicItem)a).topic.name;
+      auto bName = (cast(TopicItem)b).topic.name;
+      auto aPos = _topicSortOrderMap.get(aName, int.max);
+      auto bPos = _topicSortOrderMap.get(bName, int.max);
+      return aPos == bPos ? cmp(aName, bName) : aPos - bPos;
+    });
+
+    _sortListModel = new SortListModel(_topicModel, _topicCustomSorter);
+
+    _topicSelection = new SingleSelection(_sortListModel);
 
     _topicSelectionChangedHandler = _topicSelection.connectSelectionChanged(() {
       auto position = _topicSelection.getSelected;
@@ -318,8 +349,8 @@ class MarkdownBrowser : Box
 
     factory.connectBind((ListItem listItem) {
       auto label = cast(Label)listItem.getChild;
-      auto item = cast(StringObject)listItem.getItem;
-      label.setText(item.getString);
+      auto item = cast(TopicItem)listItem.getItem;
+      label.setText(item.topic.title);
     });
 
     _topicListView = new ListView(_topicSelection, factory);
@@ -347,7 +378,11 @@ class MarkdownBrowser : Box
 
 private:
   ListView _topicListView; // Topic list view widget
-  StringList _topicModel; // Topic list model
+  ListStore _topicModel; // Topic list model
+  SortListModel _sortListModel; // The sorted list model
+  CustomSorter _topicCustomSorter; // Custom sorter for the topic list
+  string[] _topicSortOrder; // Optional array of topic names to sort (others are sorted by title afterwards)
+  int[string] _topicSortOrderMap; // Topic order index map keyed by topic name
   SingleSelection _topicSelection; // Topic selection object
   ulong _topicSelectionChangedHandler; // Topic list selection changed signal handler ID
   ScrolledWindow _viewScrollWin; // Text view scrolled window
@@ -355,10 +390,29 @@ private:
   Button _backBtn; // Back navigation button
   Button _forwardBtn; // Forward navigation button
   Button _homeBtn; // Home button (hidden if there is no home topic)
-  Topic[] _topics; // Topics (pages)
-  Visit[] _history; // Visit history
+  Topic*[] _topics; // Topics (pages)
+  Visit*[] _history; // Visit history
   int _historyMax = DefaultHistoryMax; // Maximum history entries
   int _historyPos; // Current history position (can be history.length when at the head of the history)
   string _homeTopic = DefaultHomeTopic; // Home topic
   int _curTopicIndex = TopicNone; // Current topic index
+}
+
+/// GObject derived class to use in ListModel for ListView items
+class TopicItem : ObjectWrap
+{
+  this()
+  {
+    super(GTypeEnum.Object);
+  }
+
+  this(MarkdownBrowser.Topic* topic)
+  {
+    super(GTypeEnum.Object);
+    this.topic = topic;
+  }
+
+  mixin(objectMixin);
+
+  MarkdownBrowser.Topic* topic;
 }

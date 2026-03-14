@@ -10,8 +10,6 @@ The original intent of this widget was to create a light weight help system base
 * Images with alt text tooltips
 * Escape Markdown special characters with backslash
 
-![giD is awesome!](w200:gid-logo.svg)
-
 **Extras**
 * GTK icons can be specified as image urls with a "icon:" prefix, such as \[Alt icon text](icon:gtk-home), can also have a size field like \[Large icon](icon:48:gtk-home).
 
@@ -28,7 +26,7 @@ A directory of Markdown topics can be added alphabetically with the `addFiles()`
 
 ### Properties
 
-**FIXME:* Many of these aren't currently implemented
+**FIXME:** Many of these aren't currently implemented
 
 * **imagesPath** - Path to base directory for images referenced by markdown content.
 * **topicIndex** - Current topic index or -1 if no topic selected.
